@@ -1,0 +1,58 @@
+on: [push]
+jobs:
+  build-and-deploy:
+    env:
+      REGISTRY_URL: vnmacr.azurecr.io
+      NAMESPACE: vnmaks8653
+      IMAGE_NAME: vnmaks
+      SECRET_NAME: vnmaks
+
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+
+    - uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.REGISTRY_URL }}
+        username: ${{ secrets.vnmacr_63fe3_username }} 
+        password: ${{ secrets.vnmacr_63fe3_password }}
+    
+    - name: Build and push image to ACR
+      id: build-image
+      run: |
+        docker build "$GITHUB_WORKSPACE/aspnetapp" -f  "aspnetapp/Dockerfile" -t  $REGISTRY_URL/$IMAGE_NAME:${{ github.sha }}
+        docker push $REGISTRY_URL/$IMAGE_NAME:${{ github.sha }}
+    
+    - uses: azure/k8s-set-context@v1
+      with:
+         kubeconfig: ${{ secrets.vnmaks_63fe3 }} 
+      id: login
+    
+    - name: Create namespace
+      run: |
+        namespacePresent=`kubectl get namespace | grep $NAMESPACE | wc -l`
+        if [ $namespacePresent -eq 0 ]
+        then
+            echo `kubectl create namespace $NAMESPACE`
+        fi
+
+    - uses: azure/k8s-create-secret@v1
+      with:
+        namespace: ${{ env.NAMESPACE  }}
+        container-registry-url: ${{ env.REGISTRY_URL }}
+        container-registry-username: ${{ secrets.vnmacr_63fe3_username }}
+        container-registry-password: ${{ secrets.vnmacr_63fe3_password }}
+        secret-name: ${{ env.SECRET_NAME  }}
+       
+    - uses: azure/k8s-deploy@v1
+      with:
+        namespace: ${{ env.NAMESPACE  }}
+        manifests: |
+          aspnetapp/manifests/deployment.yml
+          aspnetapp/manifests/service.yml
+          
+
+        images: |
+          ${{ env.REGISTRY_URL }}/${{ env.IMAGE_NAME  }}:${{ github.sha }}
+        imagepullsecrets: |
+          ${{ env.SECRET_NAME  }}
